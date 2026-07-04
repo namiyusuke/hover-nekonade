@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>なでボタン — 撫でられるボタン | #nauts_hover</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #e6ebec;
+    color: #22282b;
+    font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh;
+    overflow-x: hidden;
+    padding: 32px 0;
+  }
+  header { text-align: center; margin-bottom: 28px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.32em; color: #7c8a8e;
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+  h1 { font-size: 34px; font-weight: 800; letter-spacing: 0.08em; }
+  h1 small { display:block; font-size: 12px; font-weight: 500; letter-spacing: 0.28em; color:#7c8a8e; margin-top: 8px; }
+
+  /* ── ステージ(ボタン置き場) ── */
+  .stage {
+    position: relative;
+    width: 560px; height: 360px;
+    max-width: 96vw;
+  }
+  .stage .shadow {
+    position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+    width: 380px; height: 46px; border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(40,50,54,0.28), rgba(40,50,54,0) 70%);
+  }
+  canvas#fur {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+    cursor: grab;
+    touch-action: none;
+  }
+  /* 顔オーバーレイ(SVG) — マウスイベントは透過 */
+  svg#face { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #face .eye-state { opacity: 0; transition: opacity 0.12s; }
+  #face .eye-state.on { opacity: 1; }
+  #face .whiskers { transition: transform 0.2s; transform-origin: 280px 200px; }
+  #face .whiskers.wiggle { animation: wiggle 0.5s ease-in-out infinite; }
+  @keyframes wiggle {
+    0%,100% { transform: rotate(0deg); }
+    50%     { transform: rotate(1.6deg); }
+  }
+
+  /* 吹き出し */
+  .bubble {
+    position: absolute; left: 50%; top: 6px; transform: translateX(-50%) scale(0.6);
+    background: #fff; color:#22282b; font-weight: 700; font-size: 15px;
+    padding: 8px 14px; border-radius: 14px;
+    box-shadow: 0 3px 10px rgba(30,40,44,0.18);
+    opacity: 0; transition: opacity 0.15s, transform 0.15s;
+    pointer-events: none; white-space: nowrap;
+  }
+  .bubble::after {
+    content:""; position:absolute; left:50%; bottom:-6px; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color:#fff; border-bottom: none;
+  }
+  .bubble.show { opacity: 1; transform: translateX(-50%) scale(1); }
+
+  /* ハート & zzz */
+  .float-item {
+    position: absolute; pointer-events: none; font-size: 18px;
+    animation: floatUp 1.1s ease-out forwards;
+  }
+  @keyframes floatUp {
+    from { opacity: 1; transform: translateY(0) scale(0.7); }
+    to   { opacity: 0; transform: translateY(-56px) scale(1.15); }
+  }
+  .zzz { color:#8fa0a5; font-weight: 700; animation-duration: 2.2s; }
+
+  /* ごきげんメーター */
+  .meter-wrap { margin-top: 6px; width: 280px; text-align: center; }
+  .meter-label { font-size: 11px; letter-spacing: 0.2em; color:#7c8a8e; margin-bottom: 6px; }
+  .meter {
+    position: relative; height: 8px; border-radius: 4px;
+    background: #cfd8da; overflow: hidden;
+  }
+  .meter .fill {
+    position: absolute; top:0; bottom:0; left: 50%; width: 0%;
+    background: #d2802f; border-radius: 4px;
+    transition: width 0.2s, left 0.2s, background 0.2s;
+  }
+  .meter .center-tick {
+    position:absolute; left:50%; top:-2px; bottom:-2px; width:2px; background:#aab8bb;
+  }
+
+  /* サウンドトグル & 説明 */
+  .controls { margin-top: 22px; display:flex; flex-direction: column; align-items:center; gap: 14px; }
+  #soundToggle {
+    font: inherit; font-size: 13px; font-weight: 600;
+    padding: 8px 18px; border-radius: 999px;
+    border: 1.5px solid #9fb0b4; background: transparent; color:#4a585c;
+    cursor: pointer;
+  }
+  #soundToggle.on { background:#22282b; color:#fff; border-color:#22282b; }
+  .howto { font-size: 12.5px; line-height: 2; color:#5d6c70; text-align:center; }
+  .howto b { color:#22282b; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .float-item, #face .whiskers.wiggle { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">#nauts_hover — hover ohgiri entry</p>
+  <h1>なでボタン<small>NADE-RARERU BUTTON</small></h1>
+</header>
+
+<div class="stage" id="stage">
+  <div class="shadow"></div>
+  <canvas id="fur"></canvas>
+
+  <!-- ── 猫の顔(SVG オーバーレイ) ──
+       canvas と同じ 560x360 の座標系。毛皮の上に目・鼻・ひげを重ねる -->
+  <svg id="face" viewBox="0 0 560 360">
+    <g class="whiskers" id="whiskers" stroke="#6b5138" stroke-width="2" stroke-linecap="round" opacity="0.75">
+      <path d="M 208 196 Q 168 190 138 180" fill="none"/>
+      <path d="M 208 204 Q 166 204 134 204" fill="none"/>
+      <path d="M 208 212 Q 168 218 140 228" fill="none"/>
+      <path d="M 352 196 Q 392 190 422 180" fill="none"/>
+      <path d="M 352 204 Q 394 204 426 204" fill="none"/>
+      <path d="M 352 212 Q 392 218 420 228" fill="none"/>
+    </g>
+
+    <!-- 目: 状態ごとにグループを用意して opacity で切り替える -->
+    <g id="eyesOpen" class="eye-state">
+      <circle cx="215" cy="166" r="8" fill="#2b1c12"/>
+      <circle cx="345" cy="166" r="8" fill="#2b1c12"/>
+      <circle cx="218" cy="163" r="2.4" fill="#fff"/>
+      <circle cx="348" cy="163" r="2.4" fill="#fff"/>
+    </g>
+    <g id="eyesHappy" class="eye-state" stroke="#2b1c12" stroke-width="4.5" stroke-linecap="round" fill="none">
+      <path d="M 203 169 Q 215 158 227 169"/>
+      <path d="M 333 169 Q 345 158 357 169"/>
+    </g>
+    <g id="eyesAngry" class="eye-state">
+      <path d="M 202 160 L 228 170" stroke="#2b1c12" stroke-width="5" stroke-linecap="round"/>
+      <path d="M 358 160 L 332 170" stroke="#2b1c12" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <g id="eyesSleep" class="eye-state" stroke="#2b1c12" stroke-width="4" stroke-linecap="round" fill="none">
+      <path d="M 203 166 Q 215 172 227 166"/>
+      <path d="M 333 166 Q 345 172 357 166"/>
+    </g>
+
+    <!-- 鼻と口 (ω) -->
+    <path d="M 274 191 L 286 191 L 280 199 Z" fill="#c96a6a"/>
+    <path d="M 280 199 Q 280 208 270 208 Q 263 208 262 202 M 280 199 Q 280 208 290 208 Q 297 208 298 202"
+          stroke="#6b4a30" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+  </svg>
+
+  <div class="bubble" id="bubble"></div>
+</div>
+
+<div class="meter-wrap">
+  <div class="meter-label">ごきげん</div>
+  <div class="meter">
+    <div class="center-tick"></div>
+    <div class="fill" id="moodFill"></div>
+  </div>
+</div>
+
+<div class="controls">
+  <button id="soundToggle">&#128264; 音を出す（ゴロゴロ）</button>
+  <p class="howto">
+    <b>毛並みに沿って（左 → 右）ゆっくり撫でる</b>とゴロゴロ喜びます ／
+    <b>逆撫で</b>すると毛が逆立って怒ります<br>
+    しばらく放っておくと寝ます ／ クリックすると鳴きます
+  </p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =====================================================================
+   なでボタン — シェルシェーディングによる毛皮つきボタン
+   ---------------------------------------------------------------------
+   仕組みの概要:
+   1. 平面(フルキャンバスの板ポリ)を 26 層インスタンス描画する(シェル法)
+   2. 各層で「毛束ノイズ」を alpha 抜きし、上の層ほど細く・少なくして毛を作る
+   3. カーソルの速度を 64x64 のフローマップに書き込み、毛のなびきに使う
+   4. 撫でる向きと毛並み(左→右)の一致度から「ごきげん」を計算し、
+      表情・ゴロゴロ音・逆毛などのリアクションに反映する
+   ===================================================================== */
+
+// ── 基本セットアップ ─────────────────────────────────────────────
+const stage  = document.getElementById('stage');
+const canvas = document.getElementById('fur');
+const SHELLS = 26;               // 毛の層数(多いほど滑らか・重い)
+const FLOW_N = 64;               // フローマップの解像度
+
+let W = 560, H = 360;            // 論理サイズ(CSSピクセル)
+
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(W, H, false);
+
+const scene  = new THREE.Scene();
+// 板ポリを画面いっぱいに映すだけなので正射影カメラを使う
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 10);
+camera.position.z = 1;
+
+// ── フローマップ(撫でた方向を記録するテクスチャ) ──────────────────
+// CPU側は符号付き float で保持し、GPU へは 0..255 に詰め替えて送る
+const flowF = new Float32Array(FLOW_N * FLOW_N * 2);      // 計算用 (x,y)
+const flowU = new Uint8Array(FLOW_N * FLOW_N * 4);        // 転送用 RGBA
+const flowTex = new THREE.DataTexture(flowU, FLOW_N, FLOW_N, THREE.RGBAFormat);
+flowTex.minFilter = THREE.LinearFilter;
+flowTex.magFilter = THREE.LinearFilter;
+
+// ── 「刈り込み文字」用テクスチャ ───────────────────────────────────
+// オフスクリーン canvas に白文字を描き、毛色を暗くするマスクとして使う
+const labelCv = document.createElement('canvas');
+labelCv.width = 512; labelCv.height = 120;
+{
+  const c = labelCv.getContext('2d');
+  c.fillStyle = '#000'; c.fillRect(0, 0, 512, 120);
+  c.fillStyle = '#fff';
+  c.font = '900 58px "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif';
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('詳しくはこちら', 256, 62);
+}
+const labelTex = new THREE.CanvasTexture(labelCv);
+
+// ── シェーダー定義 ────────────────────────────────────────────────
+const vert = `
+  attribute float aLayer;   // インスタンスごとの層番号 (0 = 皮膚)
+  varying vec2 vUv;
+  varying float vLayer;
+  void main() {
+    vUv = uv;
+    vLayer = aLayer;
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+  }
+`;
+
+const frag = `
+  precision highp float;
+  varying vec2 vUv;
+  varying float vLayer;
+
+  uniform float uShells;    // 総層数
+  uniform float uAspect;    // canvas のアスペクト比 (幅/高さ)
+  uniform sampler2D uFlow;  // 撫でフローマップ
+  uniform sampler2D uLabel; // 刈り込み文字マスク
+  uniform float uBristle;   // 0..1 逆毛(怒り)の強さ
+  uniform float uHappy;     // 0..1 ごきげん(毛づやに反映)
+
+  // ── ハッシュ関数(毛束の乱数生成) ──
+  float hash12(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+  }
+  vec2 hash22(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+  }
+
+  // ── SDF(符号付き距離関数): ボタン形状の定義 ──
+  float sdRoundedBox(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+  }
+  float sdTriangle(vec2 p, vec2 p0, vec2 p1, vec2 p2) {
+    vec2 e0 = p1 - p0, e1 = p2 - p1, e2 = p0 - p2;
+    vec2 v0 = p - p0,  v1 = p - p1,  v2 = p - p2;
+    vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+    vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+    vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+    float s = sign(e0.x * e2.y - e0.y * e2.x);
+    vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                     vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                     vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+    return -sqrt(d.x) * sign(d.y);
+  }
+
+  // 角丸ボタン + 三角の耳 2 枚を合成 (min = 和集合)
+  float buttonMask(vec2 p) {
+    float body = sdRoundedBox(p - vec2(0.0, -0.04), vec2(0.55, 0.255), 0.20);
+    float earL = sdTriangle(p, vec2(-0.46, 0.10), vec2(-0.14, 0.20), vec2(-0.36, 0.46));
+    float earR = sdTriangle(p, vec2( 0.14, 0.20), vec2( 0.46, 0.10), vec2( 0.36, 0.46));
+    return min(body, min(earL, earR));
+  }
+  // 内耳(ピンク)は耳の三角を重心方向へ 42% 縮めたもの
+  float innerEar(vec2 p) {
+    vec2 cL = vec2(-0.32, 0.253), cR = vec2(0.32, 0.253);
+    float L = sdTriangle(p, mix(vec2(-0.46,0.10),cL,0.42), mix(vec2(-0.14,0.20),cL,0.42), mix(vec2(-0.36,0.46),cL,0.42));
+    float R = sdTriangle(p, mix(vec2( 0.14,0.20),cR,0.42), mix(vec2( 0.46,0.10),cR,0.42), mix(vec2( 0.36,0.46),cR,0.42));
+    return min(L, R);
+  }
+
+  void main() {
+    // 層の高さ h: 0(根元) → 1(毛先)
+    float h = vLayer / (uShells - 1.0);
+
+    // uv → アスペクト補正済みローカル座標 p (縦方向 -0.5..0.5)
+    vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+
+    // ── 毛のなびき(ベンド)を合成 ──
+    // rest: 毛並み(基本は右向き) + 縁ほど外向き(ふわっとした輪郭を作る)
+    float dHere = buttonMask(p);
+    vec2 outward = normalize(p - vec2(0.0, -0.04) + vec2(1e-4));
+    float edge = smoothstep(-0.16, -0.01, dHere);
+    vec2 rest = vec2(0.30, -0.05) + outward * edge * 0.38;
+
+    // dyn: 撫でによる動的な流れ(0..1 で保存 → -1..1 に復号)
+    vec2 flow = texture2D(uFlow, vUv).xy * 2.0 - 1.0;
+    vec2 dyn = vec2(flow.x * uAspect, flow.y) * 1.5;
+
+    // 逆毛モード: ベンドを弱め、毛束ごとのランダム方向に「立たせる」
+    vec2 rnd = hash22(floor(p * 90.0) + 3.7) - 0.5;
+    vec2 bend = mix(rest + dyn, rnd * 1.4, uBristle * 0.8);
+    float bl = length(bend);
+    if (bl > 1.15) bend *= 1.15 / bl;   // なびき過ぎ防止
+
+    // 毛先ほど大きく根元位置をずらす(pow で先端カーブ)
+    vec2 rootP = p - bend * pow(h, 1.5) * 0.105;
+    float d = buttonMask(rootP);
+
+    // ── 層 0: 皮膚(隙間が見えないよう不透明で塗る) ──
+    if (vLayer < 0.5) {
+      float a = smoothstep(0.004, -0.004, dHere);
+      if (a < 0.01) discard;
+      vec3 skin = vec3(0.35, 0.215, 0.125);
+      skin = mix(skin, vec3(0.93, 0.60, 0.60), smoothstep(0.008, -0.008, innerEar(p)));
+      gl_FragColor = vec4(skin, a);
+      return;
+    }
+
+    if (d > 0.0) discard;   // 毛の根元がボタンの外なら描かない
+
+    // ── 毛束の生成(セルごとに 1 本) ──
+    float dens = 78.0;                       // 密度: 1 単位あたりの毛束数
+    vec2 g = rootP * dens;
+    vec2 cell = floor(g);
+    vec2 f = fract(g) - 0.5;
+    vec2 rj = hash22(cell);
+    f -= (rj - 0.5) * 0.55;                  // 毛束の位置を散らす
+
+    float len = mix(0.55, 1.0, hash12(cell + 7.31));  // 毛の長さ(層数比)
+    len *= 1.0 + uBristle * 0.30;            // 逆毛時は毛が伸びる(立つ)
+    if (h > len) discard;                    // この層まで毛が届いていない
+
+    float taper = 1.0 - h / len;             // 先端ほど細く
+    float rad = 0.46 * taper + 0.03;
+    float alpha = smoothstep(rad, rad - 0.18, length(f));
+    if (alpha < 0.03) discard;
+
+    // ── 毛色: 茶トラ ──
+    vec3 base = vec3(0.83, 0.51, 0.22);
+    vec3 dark = vec3(0.54, 0.30, 0.11);
+    // 縦縞(トラ柄): x 方向の sin 波を y でゆらす
+    float stripe = smoothstep(0.45, 0.80, sin(rootP.x * 22.0 + sin(rootP.y * 7.0 + 1.7) * 1.4));
+    vec3 col = mix(base, dark, stripe * 0.65);
+    // 口まわりはクリーム色(マズル)
+    float muzzle = smoothstep(0.21, 0.10, length((rootP - vec2(0.0, -0.085)) * vec2(1.0, 1.35)));
+    col = mix(col, vec3(0.96, 0.90, 0.78), muzzle);
+
+    // 刈り込み文字「詳しくはこちら」: マスク部分の毛を暗く刈る
+    vec2 lb = (rootP - vec2(0.0, -0.195)) / vec2(0.66, 0.155) + 0.5;
+    if (lb.x > 0.0 && lb.x < 1.0 && lb.y > 0.0 && lb.y < 1.0) {
+      col *= 1.0 - texture2D(uLabel, lb).r * 0.52;
+    }
+
+    col *= 0.90 + 0.20 * hash12(cell + 3.1);            // 毛束ごとの濃淡
+    col *= mix(0.50, 1.06, h);                          // 根元は影(AO)
+    col += vec3(0.10, 0.08, 0.05) * smoothstep(0.72, 1.0, h); // 毛先ハイライト
+    col *= 1.0 + uHappy * 0.07;                         // ごきげんだと毛づやup
+
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+// ── シェル(層)をインスタンス描画するジオメトリ ──────────────────
+const plane = new THREE.PlaneGeometry(2, 2);
+const geo = new THREE.InstancedBufferGeometry();
+geo.index = plane.index;
+geo.setAttribute('position', plane.attributes.position);
+geo.setAttribute('uv', plane.attributes.uv);
+const layers = new Float32Array(SHELLS);
+for (let i = 0; i < SHELLS; i++) layers[i] = i;   // 0(皮膚) → 25(毛先)
+geo.setAttribute('aLayer', new THREE.InstancedBufferAttribute(layers, 1));
+geo.instanceCount = SHELLS;
+
+const uniforms = {
+  uShells:  { value: SHELLS },
+  uAspect:  { value: W / H },
+  uFlow:    { value: flowTex },
+  uLabel:   { value: labelTex },
+  uBristle: { value: 0 },
+  uHappy:   { value: 0 },
+};
+const mat = new THREE.ShaderMaterial({
+  vertexShader: vert,
+  fragmentShader: frag,
+  uniforms,
+  transparent: true,
+  depthTest: false,
+  depthWrite: false,
+});
+scene.add(new THREE.Mesh(geo, mat));
+
+// ── 状態管理 ─────────────────────────────────────────────────────
+const state = {
+  mood: 0,            // -1(怒) .. +1(喜)
+  activity: 0,        // 直近の撫で活動量 0..1
+  hovering: false,
+  pointer: null,      // {u, v} canvas 内の正規化座標(v は下が 0)
+  vel: { x: 0, y: 0 },// uv/秒
+  lastMove: 0,
+  face: 'sleep',      // sleep | open | happy | angry
+  awake: false,
+  lastHeart: 0,
+  lastZzz: 0,
+};
+
+const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ── ポインタ処理: 位置と速度を追跡 ────────────────────────────────
+let prevPos = null, prevT = 0;
+
+function toUv(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    u: (e.clientX - r.left) / r.width,
+    v: 1 - (e.clientY - r.top) / r.height,   // フローマップと同じく下原点
+  };
+}
+
+canvas.addEventListener('pointerenter', () => {
+  state.hovering = true;
+  wake();
+});
+canvas.addEventListener('pointerleave', () => {
+  state.hovering = false;
+  state.pointer = null;
+  prevPos = null;
+});
+canvas.addEventListener('pointermove', (e) => {
+  const pos = toUv(e);
+  const now = performance.now() / 1000;
+  if (prevPos) {
+    const dt = Math.max(now - prevT, 1e-3);
+    // 速度は少しなまして(ローパス)ガタつきを抑える
+    state.vel.x = state.vel.x * 0.5 + ((pos.u - prevPos.u) / dt) * 0.5;
+    state.vel.y = state.vel.y * 0.5 + ((pos.v - prevPos.v) / dt) * 0.5;
+  }
+  prevPos = pos; prevT = now;
+  state.pointer = pos;
+  state.lastMove = now;
+});
+canvas.addEventListener('pointerdown', () => {
+  wake();
+  onPoke();
+});
+
+// ── 起きる/寝る ──
+function wake() {
+  if (!state.awake) {
+    state.awake = true;
+    showBubble('！', 600);
+  }
+  state.lastMove = performance.now() / 1000;
+}
+
+// ── クリック時のリアクション ──
+function onPoke() {
+  if (state.mood > 0.35) { showBubble('にゃ〜♡', 900); meow(); }
+  else if (state.mood < -0.25) { showBubble('シャーッ!!', 900); hiss(); shake(); }
+  else { showBubble('…なに？', 800); meow(0.6); }
+}
+
+// ── フローマップ更新(撫での流れを書き込む) ─────────────────────────
+function updateFlow(dt) {
+  const decay = Math.pow(0.06, dt);   // 約 1 秒で 6% まで減衰
+  for (let i = 0; i < flowF.length; i++) flowF[i] *= decay;
+
+  // カーソル周辺にガウス状に速度をスタンプする
+  if (state.pointer && state.hovering) {
+    const speed = Math.hypot(state.vel.x, state.vel.y);
+    if (speed > 0.02) {
+      const cx = state.pointer.u * FLOW_N;
+      const cy = state.pointer.v * FLOW_N;
+      const R = 7;                       // スタンプ半径(テクセル)
+      const sx = clamp(state.vel.x * 0.55, -1, 1);
+      const sy = clamp(state.vel.y * 0.55, -1, 1);
+      const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(FLOW_N - 1, Math.ceil(cx + R));
+      const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(FLOW_N - 1, Math.ceil(cy + R));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const dx = x - cx, dy = y - cy;
+          const w = Math.exp(-(dx * dx + dy * dy) / (R * R * 0.4));
+          const idx = (y * FLOW_N + x) * 2;
+          flowF[idx]     = clamp(flowF[idx]     + sx * w, -1, 1);
+          flowF[idx + 1] = clamp(flowF[idx + 1] + sy * w, -1, 1);
+        }
+      }
+    }
+  }
+  // float(-1..1) → byte(0..255) に詰め替えて GPU へ
+  for (let i = 0, j = 0; i < flowF.length; i += 2, j += 4) {
+    flowU[j]     = flowF[i]     * 127 + 128;
+    flowU[j + 1] = flowF[i + 1] * 127 + 128;
+    flowU[j + 2] = 128;
+    flowU[j + 3] = 255;
+  }
+  flowTex.needsUpdate = true;
+}
+
+// ── ごきげん計算 ──────────────────────────────────────────────────
+// 毛並み(+X)に沿ってゆっくり撫でる → 加点 / 逆撫で → 減点(重め)
+function updateMood(dt) {
+  const speed = Math.hypot(state.vel.x, state.vel.y);
+  const stroking = state.hovering && state.pointer && speed > 0.05;
+
+  if (stroking) {
+    const align = state.vel.x / (speed + 1e-6);   // +1: 毛並み方向 / -1: 逆撫で
+    const gentle = smooth01((speed - 0.05) / 0.5) * (1 - smooth01((speed - 1.6) / 1.2)); // 速すぎは効果減
+    if (align > 0.35) state.mood += 0.45 * gentle * dt;
+    else if (align < -0.35) state.mood -= 0.9 * smooth01((speed - 0.05) / 0.4) * dt;
+    state.activity = Math.min(1, state.activity + dt * 3);
+  } else {
+    state.activity = Math.max(0, state.activity - dt * 1.5);
+  }
+  // 何もしないと徐々に平常心へ
+  state.mood += (0 - state.mood) * (state.hovering ? 0.06 : 0.25) * dt;
+  state.mood = clamp(state.mood, -1, 1);
+
+  // 速度は入力が途絶えたら減衰させる
+  const now = performance.now() / 1000;
+  if (now - state.lastMove > 0.08) {
+    state.vel.x *= 0.8; state.vel.y *= 0.8;
+  }
+}
+
+// ── 表情の切り替え ────────────────────────────────────────────────
+const eyeGroups = {
+  open:  document.getElementById('eyesOpen'),
+  happy: document.getElementById('eyesHappy'),
+  angry: document.getElementById('eyesAngry'),
+  sleep: document.getElementById('eyesSleep'),
+};
+let blinkUntil = 0;
+let nextBlink = 3;
+
+function setFace(name) {
+  if (state.face === name) return;
+  state.face = name;
+  for (const k in eyeGroups) eyeGroups[k].classList.toggle('on', k === name);
+}
+
+function updateFace(now) {
+  if (!state.awake) { setFace('sleep'); return; }
+  if (state.mood < -0.25) { setFace('angry'); return; }
+  if (state.mood > 0.35 && state.activity > 0.2) { setFace('happy'); return; }
+  // まばたき: 3〜6 秒ごとに 0.12 秒閉じる
+  if (now > nextBlink) {
+    blinkUntil = now + 0.12;
+    nextBlink = now + 3 + Math.random() * 3;
+  }
+  setFace(now < blinkUntil ? 'sleep' : 'open');
+}
+
+// ── 吹き出し / ハート / zzz ──────────────────────────────────────
+const bubble = document.getElementById('bubble');
+let bubbleTimer = null;
+function showBubble(text, ms) {
+  bubble.textContent = text;
+  bubble.classList.add('show');
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => bubble.classList.remove('show'), ms);
+}
+
+function spawnFloat(text, x, y, cls) {
+  if (prefersReduced) return;
+  const el = document.createElement('span');
+  el.className = 'float-item ' + (cls || '');
+  el.textContent = text;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  stage.appendChild(el);
+  setTimeout(() => el.remove(), 2300);
+}
+
+function shake() {
+  if (prefersReduced) return;
+  canvas.animate(
+    [ { transform: 'translateX(0)' }, { transform: 'translateX(-5px)' },
+      { transform: 'translateX(5px)' }, { transform: 'translateX(-3px)' },
+      { transform: 'translateX(0)' } ],
+    { duration: 300 }
+  );
+}
+
+// ── サウンド(Web Audio) ───────────────────────────────────────────
+// ブラウザの自動再生制限のため、トグルボタンのクリックで初期化する
+let actx = null, soundOn = false;
+let purrAmp = null, lfoDepth = null;
+
+const soundBtn = document.getElementById('soundToggle');
+soundBtn.addEventListener('click', () => {
+  if (!actx) initAudio();
+  soundOn = !soundOn;
+  if (soundOn) actx.resume();
+  soundBtn.classList.toggle('on', soundOn);
+  soundBtn.textContent = soundOn ? '\uD83D\uDD0A 音 ON（撫でてみて）' : '\uD83D\uDD08 音を出す（ゴロゴロ）';
+});
+
+function initAudio() {
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // ゴロゴロ: ブラウンノイズ → ローパス → 25Hz で振幅変調
+  const len = actx.sampleRate * 2;
+  const buf = actx.createBuffer(1, len, actx.sampleRate);
+  const data = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    const white = Math.random() * 2 - 1;
+    last = (last + 0.02 * white) / 1.02;   // ブラウンノイズ(低域寄り)
+    data[i] = last * 3.5;
+  }
+  const src = actx.createBufferSource();
+  src.buffer = buf; src.loop = true;
+
+  const lp = actx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 240; lp.Q.value = 0.7;
+
+  purrAmp = actx.createGain(); purrAmp.gain.value = 0;
+
+  // 25Hz の LFO を gain に接続して「ゴロ…ゴロ…」の脈動を作る
+  const lfo = actx.createOscillator(); lfo.frequency.value = 25;
+  lfoDepth = actx.createGain(); lfoDepth.gain.value = 0;
+  lfo.connect(lfoDepth); lfoDepth.connect(purrAmp.gain);
+
+  src.connect(lp).connect(purrAmp).connect(actx.destination);
+  src.start(); lfo.start();
+}
+
+// にゃ〜(クリック時): のこぎり波のピッチを山なりに動かす
+function meow(vol) {
+  if (!actx || !soundOn) return;
+  vol = vol || 1;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(); o.type = 'sawtooth';
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1300; f.Q.value = 3;
+  const g = actx.createGain();
+  o.frequency.setValueAtTime(520, t);
+  o.frequency.exponentialRampToValueAtTime(880, t + 0.12);
+  o.frequency.exponentialRampToValueAtTime(430, t + 0.38);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.16 * vol, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+  o.connect(f); f.connect(g); g.connect(actx.destination);
+  o.start(t); o.stop(t + 0.45);
+}
+
+// シャーッ(怒り): ハイパスを通したノイズバースト
+function hiss() {
+  if (!actx || !soundOn) return;
+  const t = actx.currentTime;
+  const len = actx.sampleRate * 0.4;
+  const buf = actx.createBuffer(1, len, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  src.connect(hp); hp.connect(g); g.connect(actx.destination);
+  src.start(t);
+}
+
+// ── UI 反映(メーター/ひげ) ───────────────────────────────────────
+const moodFill = document.getElementById('moodFill');
+const whiskers = document.getElementById('whiskers');
+function updateUI() {
+  const m = state.mood;
+  if (m >= 0) {
+    moodFill.style.left = '50%';
+    moodFill.style.width = (m * 50) + '%';
+    moodFill.style.background = '#d2802f';
+  } else {
+    moodFill.style.left = (50 + m * 50) + '%';
+    moodFill.style.width = (-m * 50) + '%';
+    moodFill.style.background = '#b04a4a';
+  }
+  whiskers.classList.toggle('wiggle', state.activity > 0.3 && state.mood > 0.2 && !prefersReduced);
+}
+
+// ── メインループ ─────────────────────────────────────────────────
+let angryFlag = false;
+let prevFrame = performance.now() / 1000;
+
+function tick() {
+  const now = performance.now() / 1000;
+  const dt = Math.min(now - prevFrame, 0.05);
+  prevFrame = now;
+
+  updateFlow(dt);
+  updateMood(dt);
+  updateFace(now);
+  updateUI();
+
+  // 怒り状態に「入った瞬間」だけシャー演出
+  const angry = state.mood < -0.25;
+  if (angry && !angryFlag) { showBubble('シャーッ!!', 800); hiss(); shake(); }
+  angryFlag = angry;
+
+  // シェーダーの uniform を目標値へなめらかに追従させる
+  uniforms.uBristle.value += ((angry ? 1 : 0) - uniforms.uBristle.value) * Math.min(dt * 8, 1);
+  uniforms.uHappy.value   += (Math.max(0, state.mood) - uniforms.uHappy.value) * Math.min(dt * 4, 1);
+
+  // ゴロゴロ音量: ごきげん × 撫で活動量
+  if (purrAmp) {
+    const level = soundOn ? Math.max(0, state.mood - 0.25) / 0.75 * state.activity * 0.5 : 0;
+    purrAmp.gain.setTargetAtTime(level * 0.55, actx.currentTime, 0.08);
+    lfoDepth.gain.setTargetAtTime(level * 0.45, actx.currentTime, 0.08);
+  }
+
+  // ゴロゴロ中は canvas がかすかに震える(触覚の視覚化)
+  if (!prefersReduced) {
+    const purring = state.mood > 0.35 && state.activity > 0.3;
+    canvas.style.transform = purring
+      ? 'translateY(' + ((Math.random() - 0.5) * 1.2) + 'px)'
+      : '';
+  }
+
+  // ハート: ごきげんに撫でている間、ときどきカーソル位置から湧く
+  if (state.mood > 0.45 && state.activity > 0.4 && state.pointer && now - state.lastHeart > 0.35) {
+    state.lastHeart = now;
+    const r = canvas.getBoundingClientRect();
+    spawnFloat('\u2661', state.pointer.u * r.width, (1 - state.pointer.v) * r.height - 10, '');
+  }
+
+  // 睡眠判定: 7 秒操作がなければ寝る + zzz
+  if (state.awake && !state.hovering && now - state.lastMove > 7) state.awake = false;
+  if (!state.awake && now - state.lastZzz > 1.4) {
+    state.lastZzz = now;
+    spawnFloat('z', 350 + Math.random() * 30, 110, 'zzz');
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+// ── リサイズ対応(モバイルで縮む場合) ──────────────────────────────
+function resize() {
+  const r = stage.getBoundingClientRect();
+  W = r.width; H = r.height;
+  renderer.setSize(W, H, false);
+  uniforms.uAspect.value = W / H;
+}
+window.addEventListener('resize', resize);
+
+// ── ユーティリティ ──
+function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+function smooth01(x) { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); }
+
+// WebGL 非対応フォールバック
+try {
+  renderer.getContext();
+  resize();
+  tick();
+} catch (e) {
+  stage.innerHTML = '<p style="text-align:center;padding-top:150px;">WebGL が利用できない環境です</p>';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>なでボタン — 撫でられるボタン | #nauts_hover</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="stage" id="stage">
+      <div class="shadow"></div>
+      <canvas id="fur"></canvas>
+      <div class="bubble" id="bubble"></div>
+    </div>
+
+    <div class="meter-wrap">
+      <div class="meter-label">ごきげん</div>
+      <div class="meter">
+        <div class="center-tick"></div>
+        <div class="fill" id="moodFill"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="soundToggle">&#128264; 音を出す（ゴロゴロ）</button>
+      <p class="howto">
+        <b>毛並みに沿って（左 → 右）ゆっくり撫でる</b>とゴロゴロ喜びます ／
+        <b>逆撫で</b>すると毛が逆立って怒ります<br />
+        しばらく放っておくと寝ます ／ クリックすると鳴きます
+      </p>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

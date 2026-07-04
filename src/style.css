@@ -161,6 +161,35 @@ svg#face {
   }
 }
 
+/* 怒りマーク(💢) — 怒っている間、頭の近くで脈打つ */
+.anger-mark {
+  position: absolute;
+  left: 30%;
+  top: 12%;
+  font-size: 40px;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(120, 20, 20, 0.35));
+  z-index: 3;
+}
+.anger-mark.show {
+  opacity: 1;
+  animation: angerPulse 0.5s ease-in-out infinite;
+}
+@keyframes angerPulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.22);
+  }
+}
+
 /* ハート & zzz */
 .float-item {
   position: absolute;

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import nekoUrl from './neko.jpg';
 import maskUrl from './neko-mask.webp';
+import happyUrl from './happy.mp3';
+import angryUrl from './angry.mp3';
 
 /* =====================================================================
    なでボタン(実写ハイブリッド版) — neko.jpg の上に毛皮のなびきを重ねる
@@ -347,6 +349,12 @@ function updateMood(dt) {
 // ── 吹き出し / ハート / zzz ──────────────────────────────────────
 const bubble = document.getElementById('bubble');
 let bubbleTimer = null;
+
+// 怒りマーク(💢): 怒っている間だけ頭の近くに表示
+const angerMark = document.createElement('div');
+angerMark.className = 'anger-mark';
+angerMark.textContent = '💢';
+stage.appendChild(angerMark);
 function showBubble(text, ms, cls) {
   bubble.textContent = text;
   bubble.classList.toggle('heart', cls === 'heart');
@@ -420,41 +428,27 @@ function initAudio() {
   src.start(); lfo.start();
 }
 
-// にゃ〜(クリック時): のこぎり波のピッチを山なりに動かす
-function meow(vol) {
-  if (!actx || !soundOn) return;
-  vol = vol || 1;
-  const t = actx.currentTime;
-  const o = actx.createOscillator(); o.type = 'sawtooth';
-  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1300; f.Q.value = 3;
-  const g = actx.createGain();
-  o.frequency.setValueAtTime(520, t);
-  o.frequency.exponentialRampToValueAtTime(880, t + 0.12);
-  o.frequency.exponentialRampToValueAtTime(430, t + 0.38);
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.16 * vol, t + 0.05);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-  o.connect(f); f.connect(g); g.connect(actx.destination);
-  o.start(t); o.stop(t + 0.45);
+// ── 実録の鳴き声(mp3) ─────────────────────────────────────────────
+// 喜び=happy.mp3 / 怒り=angry.mp3。ユーザー操作(クリック等)を起点に鳴らす
+const happySnd = new Audio(happyUrl);
+const angrySnd = new Audio(angryUrl);
+happySnd.preload = 'auto';
+angrySnd.preload = 'auto';
+
+function playSnd(el, vol) {
+  if (!soundOn) return;
+  try {
+    el.currentTime = 0;
+    el.volume = clamp(vol == null ? 1 : vol, 0, 1);
+    el.play().catch(() => {});
+  } catch (e) { /* 再生できない環境は無視 */ }
 }
 
-// シャーッ(怒り): ハイパスを通したノイズバースト
-function hiss() {
-  if (!actx || !soundOn) return;
-  const t = actx.currentTime;
-  const len = actx.sampleRate * 0.4;
-  const buf = actx.createBuffer(1, len, actx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  const src = actx.createBufferSource(); src.buffer = buf;
-  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
-  const g = actx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.22, t + 0.03);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-  src.connect(hp); hp.connect(g); g.connect(actx.destination);
-  src.start(t);
-}
+// にゃ〜(喜び): happy.mp3
+function meow(vol) { playSnd(happySnd, vol == null ? 1 : vol); }
+
+// シャーッ(怒り): angry.mp3
+function hiss() { playSnd(angrySnd); }
 
 // ── UI 反映(メーター) ─────────────────────────────────────────────
 const moodFill = document.getElementById('moodFill');
@@ -489,6 +483,8 @@ function tick() {
   const angry = state.mood < -0.25;
   if (angry && !angryFlag) { showBubble('シャーッ!!', 800); hiss(); shake(); }
   angryFlag = angry;
+  // 怒っている間は 💢 マークを表示(分かりやすく)
+  angerMark.classList.toggle('show', angry);
 
   // ごきげんが上がって喜び状態に「入った瞬間」だけ吹き出しにハート
   const happy = state.mood > 0.5;
